@@ -11,7 +11,7 @@ make default: 00-split-by-barcode.completed
 
 00-split-by-barcode.completed:
 	qsub \
-		-v LEFT_READS=${LEFT_READS},RIGHT_READS=${RIGHT_READS},BC_READS=${BC_READS}
+		-v LEFT_READS=${LEFT_READS},RIGHT_READS=${RIGHT_READS},BC_READS=${BC_READS} \
 		qsubs/split-by-barcode.sh
 
 trimmed/%.fasta: split-by-barcode/%.fastq
