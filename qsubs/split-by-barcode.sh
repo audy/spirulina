@@ -12,11 +12,10 @@ set -e
 #
 # raw reads -> split by barcode (fastq) files
 
-# USAGE: qsub -v LEFT_READS=foo.fastq.gz,BC_READS=bar.fastq.gz=RIGHT_READS=baz.fastq.gz
+# USAGE: qsub -v BARCODES=barcodes.csv,LEFT_READS=foo.fastq.gz,BC_READS=bar.fastq.gz=RIGHT_READS=baz.fastq.gz
 
 cd $PBS_O_WORKDIR
 
-BARCODES='triplett-barcodes.csv'
 OUTDIR='split-by-barcode'
 EXPERIMENT=$(basename `pwd`)
 
