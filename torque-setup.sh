@@ -17,6 +17,8 @@ ff02::2 ip6-allrouters
 127.0.0.1   slave
 EOF
 
+apt-get update
+
 apt-get install -y torque-server torque-scheduler torque-mom torque-client
 
 qterm # kill running jobs
@@ -46,4 +48,12 @@ EOF
 qterm
 pbs_server
 
-apt-get install make
+# it's dangerous to go alone!
+apt-get install -y make
+
+# install BioPython
+apt-get install -y python-dev python-pip
+pip install biopython
+
+# install spirulina executables
+cp /vagrant/bin/* /usr/local/bin

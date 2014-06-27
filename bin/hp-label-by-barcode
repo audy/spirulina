@@ -1,0 +1,301 @@
+#!/usr/bin/env python
+
+import argparse
+import string
+
+from itertools import izip
+from collections import defaultdict
+
+import logging
+import gzip
+
+from Bio import SeqIO
+
+class PhonyRecord():
+    ''' looks and acts sort of like a BioPython SeqRecord '''
+
+    def __init__(self, **kwargs):
+        self.seq = kwargs['seq']
+        self.qual = kwargs['qual']
+        self.id = kwargs.get('id', -1)
+        self.description = kwargs['description']
+
+    def format(self, format):
+        if format == 'fasta':
+            return '>%s %s\n%s' % (self.id,
+                                   self.description,
+                                   self.seq)
+        elif format == 'fastq':
+            return '@%s:%s\n%s\n+\n%s\n' % (self.id,
+                                          self.description,
+                                          self.seq,
+                                          self.qual)
+
+    def __repr__(self):
+
+        print '<PhonyRecord: seq=%s, qual=%s, id=%s>' % (self.seq,
+                                                         self.qual,
+                                                         self.id)
+
+    def __getitem__(self, *x):
+        raise NotImplementedError
+
+
+class QSEQParser():
+    ''' A quick and dirty qseq parser. Returns objects
+        that mimic BioPython SeqRecord objects
+    '''
+
+    def __init__(self, handle):
+        self.handle = handle
+
+    def __iter__(self):
+        for i, line in enumerate(self.handle):
+            seq, qual, desc = self._parse_qseq_line(line.strip())
+
+            record = PhonyRecord(seq=seq,
+                                 qual=qual,
+                                 description=desc,
+                                 id=i)
+            yield record
+
+    def _parse_qseq_line(self, line):
+        line = line.strip().split("\t")
+
+        seq = line[8].replace('.', 'N')
+        qual = line[9]
+        desc = ':'.join(line[0:7])
+
+        return (seq, qual, desc)
+
+        return record
+
+
+def parse_args():
+    ''' parse arguments '''
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--barcodes',
+                        help='barcodes comma-separated values (CSV) file')
+    parser.add_argument('--left-reads', help='left reads')
+    parser.add_argument('--right-reads', help='right reads')
+    parser.add_argument('--barcode-reads', help='barcode reads')
+    parser.add_argument('--output', default='/dev/stdout', help='output file')
+    parser.add_argument('--read-format', default='fastq')
+    parser.add_argument('--reverse-barcode', default=False, action='store_true')
+    parser.add_argument('--complement-barcode', default=False, action='store_true')
+    parser.add_argument('--label', default=None, help='label to append to header')
+    parser.add_argument('--bc-seq-proc',
+                        default=None,
+                        help='Python proc evaluated on barcode Bio.Record object. '
+                        'Can be helpful for pre-processing barcode reads')
+    parser.add_argument('--output-format',
+                        default='fastq',
+                        help='output sequence format. default=fastq')
+    parser.add_argument('--gzip',
+                        default=False,
+                        action='store_true',
+                        help='are input sequences compressed with Gzip?')
+    parser.add_argument('--id-format',
+                        default='barcode-%(barcode)s-read-%(index)s',
+                        help='Python format string used to format sample id. '
+                             'for example: HS1_L_1_B_%%s '
+                             'The %%(barcode) will be replace by the barcode id '
+                             'barcodes CSV file. '
+                             'and %%(index)s will be replace by the read index '
+                             'default=barcode-%%(sample_id)s-read%%(read)s')
+
+    return parser.parse_args()
+
+
+class DemultiplexedSequenceEmitter(object):
+
+    def __init__(self, **kwargs):
+        ''' Create a new DemultiplexedSequenceEmitter given
+            Three sequence files and a list of barcodes
+
+            >>> emitter = DemultiplexedSequenceEmitter(
+            ...             left_handle=left_handle,
+            ...             barcode_handle=barcode_handle,
+            ...             right_handle=right_handle,
+            ...             barcodes=barcodes
+            ...           )
+
+            >>> for l, b, r in emitter:
+            ...     print b
+        '''
+
+        self.left_handle = kwargs['left_handle']
+        self.right_handle = kwargs['right_handle']
+        self.barcode_handle = kwargs['barcode_handle']
+        self.barcodes = kwargs['barcodes']
+        self.read_format = kwargs['read_format']
+
+        if self.read_format == 'qseq':
+            self.left_records = QSEQParser(self.left_handle)
+            self.barcode_records = QSEQParser(self.barcode_handle)
+            self.right_records= QSEQParser(self.right_handle)
+        else:
+            self.left_records = SeqIO.parse(self.left_handle, self.read_format)
+            self.barcode_records = SeqIO.parse(self.barcode_handle, self.read_format)
+            self.right_records = SeqIO.parse(self.right_handle, self.read_format)
+
+        self.stats = defaultdict(int)
+
+        #
+        # a lambda for preprocessing barcode sequences
+        # can be used to get around problems with barcodes
+        # having extra nucleotides
+        #
+        # example: barcode_proc = lambda k: k[0:7]
+        # will only use first 7 characters of the barcode
+        #
+
+        # XXX (austin) this will never be safe!
+        self.barcode_proc = kwargs.get('barcode_proc', False)
+        if type(self.barcode_proc) == str:
+            self.barcode_proc = eval(self.barcode_proc)
+
+
+    def __iter__(self):
+        ''' Iterates over triplets of sequence files yielding only
+            records that match a barcode sequence in the given
+            barcodes dictionary.
+        '''
+
+        for l, b, r in izip(self.left_records, self.barcode_records, self.right_records):
+
+            # preprocess barcode, or don't
+            if self.barcode_proc != None:
+                b = self.barcode_proc(b)
+
+            # if barcode is a match, yield left, barcode and right
+            # SeqIO records.
+            if str(b.seq) in self.barcodes:
+                self.stats['matched'] += 1
+                yield (l, b, r)
+            else:
+                self.stats['skipped'] += 1
+                yield (l, None, r)
+
+
+def load_barcodes(handle, reverse=False, complement=False):
+    ''' Loads barcodes file into dictionary where
+        'barcode_sequence': 'sample_id', ...
+
+        File looks like:
+        name,barcode_sequence
+        ...
+        name,barcode_sequence
+
+        >>> barcodes = load_barcodes('barcodes.csv', reverse=True, complement=True)
+    '''
+
+    REVCOMP = string.maketrans('GATCRYgatcry', 'CTAGYRctagyr')
+
+    barcodes = {}
+
+    logging.info('loading barcodes from %s with reverse=%s, complement=%s' % (handle.name, reverse, complement))
+
+    for line in handle:
+        line = line.strip().split(',')
+        name, bc = line[0], line[1]
+        if reverse:
+            bc = bc[::-1]
+        if complement:
+            bc = bc.translate(REVCOMP)
+        barcodes[bc] = name
+
+    logging.info('loaded %s barcodes' % len(barcodes))
+
+    return barcodes
+
+
+def setup_logging(logfile='/dev/stderr', verbose=False):
+
+    if verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
+    return logging.basicConfig(filename=logfile, level=level)
+
+
+def reformat_header(seq_record, id_format=None, info=None):
+
+    new_id = id_format % info
+
+    seq_record.description = '%s:%s' % (seq_record.id, seq_record.description)
+    seq_record.id = new_id
+
+    return seq_record
+
+
+def main(logger=None):
+    # parse arguments
+    args = parse_args()
+
+    setup_logging()
+
+    logging.info('using "%s" as sample id format string' % args.id_format)
+
+    # setup iterator stream.
+    with open(args.barcodes) as handle:
+        barcodes = load_barcodes(handle, reverse=args.reverse_barcode, complement=args.complement_barcode)
+
+    if args.gzip == True:
+        opener = gzip.GzipFile
+        logging.info('using gzip for input')
+    else:
+        opener = open
+
+    left_handle = opener(args.left_reads)
+    right_handle = opener(args.right_reads)
+    barcode_handle = opener(args.barcode_reads)
+
+    emitter = DemultiplexedSequenceEmitter(
+                left_handle=left_handle,
+                barcode_handle=barcode_handle,
+                right_handle=right_handle,
+                barcodes=barcodes,
+                barcode_proc=args.bc_seq_proc,
+                read_format=args.read_format)
+
+    output_handle = open(args.output, 'w')
+
+    index, total_pairs = 0, 0
+
+    for l, b, r in emitter:
+        if b == None:
+            total_pairs += 1
+            continue
+        index += 1
+        sample_id = barcodes[str(b.seq)]
+
+        l = reformat_header(l,
+                            id_format=args.id_format,
+                            info = {
+                                'sample_id': sample_id,
+                                'index': index,
+                                'label': args.label,
+                                'bc_seq': str(b.seq)
+                            })
+
+        r = reformat_header(r,
+                            id_format=args.id_format,
+                            info = {
+                                'sample_id': sample_id,
+                                'index': index,
+                                'label': args.label,
+                                'bc_seq': str(b.seq)
+                            })
+
+        output_handle.write(l.format(args.output_format))
+        output_handle.write(r.format(args.output_format))
+
+    logging.info('matched %s of %s pairs (%.2f %%)' % (index, total_pairs, 100*index/float(total_pairs)))
+
+    output_handle.close()
+
+if __name__ == '__main__':
+    main()
