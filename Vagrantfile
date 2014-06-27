@@ -19,5 +19,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     master.vm.hostname = 'master'
 
     master.vm.provision :shell, :path => 'torque-setup.sh'
+    master.vm.provision :shell, :privileged => false, :path => 'test/run-tests'
   end
 end

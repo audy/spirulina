@@ -57,8 +57,3 @@ pip install biopython
 
 # install spirulina executables
 cp /vagrant/bin/* /usr/local/bin
-
-# run tests
-
-cd /vagrant
-test/run-tests
