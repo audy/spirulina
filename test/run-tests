@@ -1,0 +1,5 @@
+cd /vagrant
+
+make
+
+# check results ...

@@ -1,17 +1,18 @@
 #
 # LOCATION OF RAW DATA
 #
-LEFT_READS='raw-reads/Undetermined_S0_L001_R1_001.fastq'
-BC_READS='raw-reads/Undetermined_S0_L001_I1_001.fastq'
-RIGHT_READS='raw-reads/Undetermined_S0_L001_R2_001.fastq'
+LEFT_READS='test/miseq-fastq/miseq-read-1.fastq'
+BC_READS='test/miseq-fastq/miseq-read-barcode.fastq'
+RIGHT_READS='test/miseq-fastq/miseq-read-2.fastq'
+BARCODES='test/barcodes.csv'
 
 READ_FORMAT='fastq' # older data is qseq
 
 make default: 00-split-by-barcode.completed
 
 00-split-by-barcode.completed:
-	qsub \
-		-v LEFT_READS=${LEFT_READS},RIGHT_READS=${RIGHT_READS},BC_READS=${BC_READS} \
+	qsub -V \
+		-v BARCODES=${BARCODES},LEFT_READS=${LEFT_READS},RIGHT_READS=${RIGHT_READS},BC_READS=${BC_READS} \
 		qsubs/split-by-barcode.sh
 
 trimmed/%.fasta: split-by-barcode/%.fastq
