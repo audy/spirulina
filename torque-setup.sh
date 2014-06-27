@@ -45,3 +45,5 @@ EOF
 
 qterm
 pbs_server
+
+apt-get install make
