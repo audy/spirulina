@@ -1,5 +1,16 @@
+#!/bin/bash
+
 cd /vagrant
 
-make
+make clean
 
-# check results ...
+#
+# Test splitting by barcode
+#
+
+echo 'testing split-by-barcode'
+make 00-split-by-barcode.completed
+sleep 2
+if [ ! -f 00-split-by-barcode.completed ]; then
+  exit 1
+fi

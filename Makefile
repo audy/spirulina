@@ -10,11 +10,15 @@ READ_FORMAT='fastq' # older data is qseq
 
 make default: 00-split-by-barcode.completed
 
+tests:
+	test/run-tests
+
 clean:
 	rm -rf *.completed
 	rm -rf out
 	rm -rf *.sh.o*
 	rm -rf *.sh.e*
+	rm -rf split-by-barcode/
 
 00-split-by-barcode.completed:
 	qsub -V \
