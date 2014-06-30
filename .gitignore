@@ -1,2 +1,3 @@
 .vagrant*
 bin/usearch
+bin/sickle
